@@ -21,6 +21,7 @@
 #include "main.h"
 #include "adc.h"
 #include "crc.h"
+#include "dma.h"
 #include "spi.h"
 #include "usart.h"
 #include "gpio.h"
@@ -78,14 +79,12 @@ int get_feature_data(size_t offset, size_t length, float *out_ptr) {
 /* Private variables ---------------------------------------------------------*/
 
 /* USER CODE BEGIN PV */
-/* Private variables ---------------------------------------------------------*/
 
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 /* USER CODE BEGIN PFP */
-/* Private function prototypes -----------------------------------------------*/
 
 /* USER CODE END PFP */
 
@@ -141,6 +140,9 @@ void AD7606_ReadData(uint16_t * DB_data)
 {
 	HAL_SPI_Receive(&hspi2, (uint8_t *)DB_data, 8, 1000);
 }
+
+uint32_t s_adc_dma_buf[1000]={0};
+uint32_t s_adc_dma_buf_temp[1000]={0};
 /* USER CODE END 0 */
 
 /**
@@ -157,7 +159,8 @@ int main(void)
   uint16_t DB_data[8] = {0};
   int count=895;
   int i;
-  #define INTERNAL_ADC
+//  #define INTERNAL_ADC_ROLLING //DMA??????oиобъ??ик2??и╣ио????бе
+  #define INTERNAL_ADC_DMA
 //  #define EXTERNAL_ADC
 //  #define INFERENCE_ON_EDGE
 
@@ -183,6 +186,7 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
+  MX_DMA_Init();
   MX_ADC1_Init();
   MX_USART1_UART_Init();
   MX_CRC_Init();
@@ -190,15 +194,18 @@ int main(void)
   /* USER CODE BEGIN 2 */
 // internal adc module init and start
   HAL_ADCEx_Calibration_Start(&hadc1,ADC_SINGLE_ENDED);
+#ifdef INTERNAL_ADC_DMA
+  HAL_ADC_Start_DMA(&hadc1,(uint32_t *)s_adc_dma_buf,1000);
+#endif
 // external adc chip   init and start
   AD7606_Init();
 // compile information and welcome!!
-  printf("Hello Wang.Wei\r\n");
   printf("%d\n", __LINE__);
   printf("%s\n", __TIME__);
   printf("%s\n", __DATE__);
   printf("%s\n", __FILE__);
   HAL_Delay(3000);
+
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -209,6 +216,15 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
+#ifdef INTERNAL_ADC_DMA
+	memcpy(s_adc_dma_buf_temp, s_adc_dma_buf, 1000);
+	for(i=0;i<1000;i++)
+	{
+		ADCvalue = s_adc_dma_buf[i];
+		Voltage=ADCvalue*3.3/4096;   //2^12=4096
+		printf("%f\t\r\n",Voltage);
+	}
+#endif
 // inference on edge device.
     if(count==895)
     {
@@ -221,7 +237,7 @@ int main(void)
     }
 
     // internal adc module, data acquisition function.
-#ifdef INTERNAL_ADC
+#ifdef INTERNAL_ADC_ROLLING
 	if(count !=895)
 	{
 		HAL_ADC_Start(&hadc1);
