@@ -90,11 +90,11 @@ void SystemClock_Config(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-// ????:
-//??ADC
-// 								Analog 			 -------> 			PA1
-//??ADC
-//							AD7606??							STM32L431???
+// ADC :
+//internal ADC
+// 								Analog 			 -------> 			PA0
+//external ADC
+//							AD7606 pin							STM32L431 pin
 //								+5V				 ------->			+5V
 //								GND				 ------->			GND
 // 								SER 			 -------> 			PC3
@@ -126,7 +126,7 @@ void AD7606_RESET(void)
 void AD7606_Init(void)
 {
 //	MX_SPI2_Init();
-//	GPIO_AD7606_Configuration();    //GPIO??????, ???MX_SPI2_Init();
+//	GPIO_AD7606_Configuration();
 	HAL_GPIO_WritePin(CO_A_GPIO_Port, CO_A_Pin, GPIO_PIN_SET);   //	CO_A_H;
 	HAL_GPIO_WritePin(CO_B_GPIO_Port, CO_B_Pin, GPIO_PIN_SET);   //	CO_B_H;
 	HAL_Delay(1);
@@ -140,9 +140,12 @@ void AD7606_ReadData(uint16_t * DB_data)
 {
 	HAL_SPI_Receive(&hspi2, (uint8_t *)DB_data, 8, 1000);
 }
-
-uint32_t s_adc_dma_buf[1000]={0};
-uint32_t s_adc_dma_buf_temp[1000]={0};
+#define ADC_DMA_BUF_LEN 5000
+uint32_t s_adc_dma_buf[ADC_DMA_BUF_LEN]={0};
+uint32_t s_adc_dma_buf_temp[ADC_DMA_BUF_LEN]={0};
+uint8_t adc_dma_flag = 0;
+uint8_t printf_running = 0;
+uint16_t adc_dmc_count = 0;
 /* USER CODE END 0 */
 
 /**
@@ -158,9 +161,9 @@ int main(void)
   uint8_t dis_buf[40];
   uint16_t DB_data[8] = {0};
   int count=895;
-  int i;
-//  #define INTERNAL_ADC_ROLLING //DMA??????oиобъ??ик2??и╣ио????бе
-  #define INTERNAL_ADC_DMA
+  int i,j;
+//  #define INTERNAL_ADC_ROLLING
+#define INTERNAL_ADC_DMA
 //  #define EXTERNAL_ADC
 //  #define INFERENCE_ON_EDGE
 
@@ -194,11 +197,9 @@ int main(void)
   /* USER CODE BEGIN 2 */
 // internal adc module init and start
   HAL_ADCEx_Calibration_Start(&hadc1,ADC_SINGLE_ENDED);
-#ifdef INTERNAL_ADC_DMA
-  HAL_ADC_Start_DMA(&hadc1,(uint32_t *)s_adc_dma_buf,1000);
-#endif
+  HAL_ADC_Start_DMA(&hadc1,(uint32_t *)s_adc_dma_buf,ADC_DMA_BUF_LEN);
 // external adc chip   init and start
-  AD7606_Init();
+//  AD7606_Init();
 // compile information and welcome!!
   printf("%d\n", __LINE__);
   printf("%s\n", __TIME__);
@@ -212,19 +213,24 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-#ifdef INTERNAL_ADC_DMA
-	memcpy(s_adc_dma_buf_temp, s_adc_dma_buf, 1000);
-	for(i=0;i<1000;i++)
+// 5-6s printf complete 5000sample  uartport:115200 8n1
+	if(adc_dma_flag==1)
 	{
-		ADCvalue = s_adc_dma_buf[i];
-		Voltage=ADCvalue*3.3/4096;   //2^12=4096
-		printf("%f\t\r\n",Voltage);
+		adc_dma_flag = 0;
+		for(i=0;i<ADC_DMA_BUF_LEN;i++)
+		{
+			ADCvalue = s_adc_dma_buf[i];
+			Voltage=ADCvalue*3.3/4096;   //2^12=4096
+			printf("%f\t\r\n",Voltage);
+// for future, inference on edge device.
+//			features[count] = Voltage;
+//			count++;
+		}
 	}
-#endif
+
 // inference on edge device.
     if(count==895)
     {
@@ -235,38 +241,6 @@ int main(void)
 #endif
 		count=0;
     }
-
-    // internal adc module, data acquisition function.
-#ifdef INTERNAL_ADC_ROLLING
-	if(count !=895)
-	{
-		HAL_ADC_Start(&hadc1);
-		HAL_ADC_PollForConversion(&hadc1, 30);
-		if(HAL_IS_BIT_SET(HAL_ADC_GetState(&hadc1), HAL_ADC_STATE_REG_EOC))
-		{
-			ADCvalue=HAL_ADC_GetValue(&hadc1);
-			Voltage=ADCvalue*3.3/4096;   //2^12=4096
-			printf("%f\t\r\n",Voltage);
-		}
-		features[count] = Voltage;
-		count++;
-	}
-#endif
-
-// external adc chip, data acquisition function.
-#ifdef  EXTERNAL_ADC
-	if(count !=895)
-	{
-		AD7606_StartConvst();
-		while((HAL_GPIO_ReadPin(GPIOA,BUSY_Pin) == GPIO_PIN_SET))
-			HAL_Delay(10);
-		AD7606_ReadData(DB_data);
-		Voltage = (float)(DB_data[3]*10.0/32768); //2^15=32768, ???16?ADC
-		printf("%f\t\r\n",Voltage);
-		features[count]= Voltage;
-		count++;
-	}
-#endif
 
   }
   /* USER CODE END 3 */
@@ -318,10 +292,10 @@ void SystemClock_Config(void)
   PeriphClkInit.AdcClockSelection = RCC_ADCCLKSOURCE_PLLSAI1;
   PeriphClkInit.PLLSAI1.PLLSAI1Source = RCC_PLLSOURCE_MSI;
   PeriphClkInit.PLLSAI1.PLLSAI1M = 1;
-  PeriphClkInit.PLLSAI1.PLLSAI1N = 18;
+  PeriphClkInit.PLLSAI1.PLLSAI1N = 16;
   PeriphClkInit.PLLSAI1.PLLSAI1P = RCC_PLLP_DIV7;
   PeriphClkInit.PLLSAI1.PLLSAI1Q = RCC_PLLQ_DIV2;
-  PeriphClkInit.PLLSAI1.PLLSAI1R = RCC_PLLR_DIV6;
+  PeriphClkInit.PLLSAI1.PLLSAI1R = RCC_PLLR_DIV2;
   PeriphClkInit.PLLSAI1.PLLSAI1ClockOut = RCC_PLLSAI1_ADC1CLK;
   if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInit) != HAL_OK)
   {
@@ -336,7 +310,28 @@ void SystemClock_Config(void)
 }
 
 /* USER CODE BEGIN 4 */
+void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc)
+{
+	// 50khz, 5kbyte, 100ms,
+	// every 6s printf once
+	adc_dmc_count++;
+	if(adc_dmc_count==60)
+	{
+		adc_dmc_count=0;
+		memcpy(s_adc_dma_buf_temp, s_adc_dma_buf, ADC_DMA_BUF_LEN);
+		adc_dma_flag = 1;
+	}
 
+	if (hadc == (&hadc1))
+	{
+		static uint8_t ledState=0;
+		if (ledState == 0)
+			 HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, GPIO_PIN_RESET);
+		else
+			 HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, GPIO_PIN_SET);
+		ledState = !ledState;
+	}
+}
 /* USER CODE END 4 */
 
 /**

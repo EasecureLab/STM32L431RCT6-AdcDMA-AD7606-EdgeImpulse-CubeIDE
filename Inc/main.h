@@ -62,6 +62,8 @@ void Error_Handler(void);
 #define SER_GPIO_Port GPIOC
 #define BUSY_Pin GPIO_PIN_1
 #define BUSY_GPIO_Port GPIOA
+#define LED_Pin GPIO_PIN_7
+#define LED_GPIO_Port GPIOA
 #define CO_A_Pin GPIO_PIN_5
 #define CO_A_GPIO_Port GPIOC
 #define CO_B_Pin GPIO_PIN_6
